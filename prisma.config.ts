@@ -1,0 +1,1 @@
+// Prisma configuration for v5

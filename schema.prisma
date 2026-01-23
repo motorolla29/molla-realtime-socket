@@ -1,0 +1,225 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "windows"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Перечисление для статуса объявления
+enum AdStatus {
+  active
+  archived
+}
+
+// Модель продавца
+model Seller {
+  id         Int         @id @default(autoincrement())
+  name       String
+  avatar     String?
+  rating     Float       @default(0) // 0–5
+  phone      String?
+  email      String?     @unique
+  password   String?     // Хэшированный пароль
+  city       String?     // Город пользователя
+  lastSeenAt DateTime?
+
+  // Связь с объявлениями
+  ads        Ad[]
+
+  // Связь с избранным
+  favorites  Favorite[]
+
+  // Связь с просмотрами
+  views      UserView[]
+
+  // Связь с чатами (как покупатель)
+  buyerChats Chat[]     @relation("BuyerChats")
+
+  // Связь с чатами (как продавец)
+  sellerChats Chat[]    @relation("SellerChats")
+
+  // Связь с отправленными сообщениями
+  sentMessages Message[]
+
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@map("sellers")
+}
+
+// Модель объявления
+model Ad {
+  id            String      @id @default(cuid())
+  category      Category
+  title         String
+  description   String?
+  city          String      // человекочитаемое название
+  cityLabel     String      // метка для URL
+  address       String?
+  lat           Float?
+  lng           Float?
+  price         BigInt?
+  currency      Currency?
+  status        AdStatus    @default(active) // статус объявления
+  datePosted    DateTime    @default(now())
+  photos        String[]    // массив URL или имен файлов
+  details       String?
+  isVip         Boolean     @default(false)
+  showPhone     Boolean     @default(true)  // показывать ли телефон в объявлении
+  showEmail     Boolean     @default(true)  // показывать ли email в объявлении
+
+
+  // Связь с продавцом
+  sellerId      Int
+  seller        Seller      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  // Связь с избранным
+  favorites     Favorite[]
+
+  // Связь с просмотрами пользователей
+  userViews     UserView[]
+
+  // Связь с чатами
+  chats         Chat[]
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("ads")
+}
+
+// Перечисления
+enum Category {
+  goods
+  services
+  realestate
+  auto
+}
+
+enum Currency {
+  RUB
+  USD
+  EUR
+}
+
+// Модель избранного
+model Favorite {
+  id             Int      @id @default(autoincrement())
+  sellerId       Int?     // Может быть null для неавторизованных пользователей
+  localUserToken String?  // Токен для неавторизованных пользователей
+  adId           String
+  isActive       Boolean  @default(true) // Флаг активности лайка
+
+  // Связи
+  seller         Seller?  @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  ad             Ad       @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime @default(now())
+
+  @@unique([sellerId, adId]) // Один авторизованный пользователь может добавить объявление в избранное только один раз
+  @@unique([localUserToken, adId]) // Один неавторизованный пользователь (по токену) может добавить объявление в избранное только один раз
+  @@unique([sellerId, localUserToken, adId]) // Предотвращает дубликаты при наличии обоих идентификаторов
+  @@map("favorites")
+}
+
+// Модель просмотров пользователей
+model UserView {
+  id             Int      @id @default(autoincrement())
+  userId         Int?
+  localUserToken String?
+  adId           String
+  viewedAt       DateTime @default(now())
+
+  // Связи
+  user           Seller?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ad             Ad       @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, adId]) // Один авторизованный пользователь может просмотреть объявление только один раз
+  @@unique([localUserToken, adId]) // Один неавторизованный пользователь (по токену) может просмотреть объявление только один раз
+  @@unique([userId, localUserToken, adId]) // Предотвращает дубликаты при наличии обоих идентификаторов
+  @@map("user_views")
+}
+
+// Модель чата
+model Chat {
+  id          String   @id @default(cuid())
+  adId        String
+  buyerId     Int      // ID покупателя
+  sellerId    Int      // ID продавца
+
+  // Связи
+  ad          Ad       @relation(fields: [adId], references: [id], onDelete: Cascade)
+  buyer       Seller   @relation("BuyerChats", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller      Seller   @relation("SellerChats", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  // Сообщения в чате
+  messages    Message[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Уникальный индекс: один чат на пару пользователь-объявление
+  @@unique([adId, buyerId])
+  @@map("chats")
+}
+
+// Модель сообщения
+model Message {
+  id          String   @id @default(cuid())
+  chatId      String
+  senderId    Int      // ID отправителя
+  content     String?  // Текст сообщения (может быть null для сообщений только с файлами)
+  messageType MessageType @default(text) // Тип сообщения
+  status      MessageStatus @default(sent) // Статус сообщения
+
+  // Связи
+  chat        Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender      Seller   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  // Вложения
+  attachments MessageAttachment[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("messages")
+}
+
+// Типы сообщений
+enum MessageType {
+  text
+  image
+  system
+}
+
+// Статусы сообщений
+enum MessageStatus {
+  sending
+  sent
+  delivered
+  read
+}
+
+// Модель вложений к сообщениям
+model MessageAttachment {
+  id         String   @id @default(cuid())
+  messageId  String
+  fileUrl    String   // Полный URL файла из ImageKit
+  fileName   String   // Оригинальное имя файла
+  fileSize   Int      // Размер файла в байтах
+  fileType   String   // MIME тип файла
+  storageType String? // 'local' | 'cloud' - тип хранилища
+
+  // Связь с сообщением
+  message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime @default(now())
+
+  @@map("message_attachments")
+}
