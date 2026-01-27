@@ -187,6 +187,35 @@ async function ensureChatAccess(chatId, userId) {
   return chat;
 }
 
+async function getRelevantUsers(userId) {
+  if (!userId) return [];
+
+  try {
+    // Получаем всех собеседников пользователя из активных чатов
+    const chats = await prisma.chat.findMany({
+      where: {
+        OR: [{ buyerId: userId }, { sellerId: userId }],
+      },
+      select: {
+        buyerId: true,
+        sellerId: true,
+      },
+    });
+
+    // Извлекаем уникальных собеседников (исключая самого пользователя)
+    const relevantUsers = new Set();
+    chats.forEach(chat => {
+      if (chat.buyerId !== userId) relevantUsers.add(chat.buyerId);
+      if (chat.sellerId !== userId) relevantUsers.add(chat.sellerId);
+    });
+
+    return Array.from(relevantUsers);
+  } catch (error) {
+    console.error('Error getting relevant users:', error);
+    return [];
+  }
+}
+
 io.on('connection', async (socket) => {
   console.log('New socket connection attempt:', socket.id);
 
@@ -217,16 +246,21 @@ io.on('connection', async (socket) => {
   // Join personal room for presence fan-out
   socket.join(`user:${userId}`);
 
-  // Notify others that user is online
-  io.emit('user_online', { userId });
-  console.log(`User ${userId} is now online`);
-
-  // Send snapshot of online users to all connected clients
-  const onlineIds = Array.from(onlineUsers.keys());
-  io.emit('presence_snapshot', {
-    onlineUserIds: onlineIds,
+  // Notify relevant users that this user is online
+  const relevantUsersOnline = await getRelevantUsers(userId);
+  relevantUsersOnline.forEach(relevantUserId => {
+    io.to(`user:${relevantUserId}`).emit('user_online', { userId });
   });
-  console.log(`Broadcasted presence snapshot:`, onlineIds);
+  console.log(`User ${userId} is now online, notified ${relevantUsersOnline.length} relevant users`);
+
+  // Send snapshot of relevant online users to THIS client only
+  const relevantUsers = await getRelevantUsers(userId);
+  const onlineRelevantUsers = relevantUsers.filter(userId => onlineUsers.has(userId));
+
+  socket.emit('presence_snapshot', {
+    onlineUserIds: onlineRelevantUsers,
+  });
+  console.log(`Sent relevant presence snapshot to ${userId}:`, onlineRelevantUsers);
 
   socket.on('join_chat', async ({ chatId }) => {
     if (!chatId) return;
@@ -355,14 +389,14 @@ io.on('connection', async (socket) => {
       } catch (err) {
         console.error('Failed to update lastSeenAt', err);
       }
-      io.emit('user_offline', { userId, lastSeenAt });
 
-      // Send updated snapshot after user goes offline
-      const onlineIds = Array.from(onlineUsers.keys());
-      io.emit('presence_snapshot', {
-        onlineUserIds: onlineIds,
+      // Notify relevant users that this user went offline (incremental update)
+      const relevantUsers = await getRelevantUsers(userId);
+      relevantUsers.forEach(relevantUserId => {
+        io.to(`user:${relevantUserId}`).emit('user_offline', { userId, lastSeenAt });
       });
-      console.log(`User ${userId} went offline, broadcasted presence snapshot:`, onlineIds);
+
+      console.log(`User ${userId} went offline, notified ${relevantUsers.length} relevant users`);
     } else {
       onlineUsers.set(userId, state);
     }
