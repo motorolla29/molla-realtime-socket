@@ -47,11 +47,14 @@ model Seller {
   // Связь с отправленными сообщениями
   sentMessages Message[]
 
-  // Связь с push-подписками
-  pushSubscription PushSubscription?
+  // Связь с push-подписками (несколько устройств)
+  pushSubscriptions PushSubscription[]
 
   // Связь с in-app уведомлениями
   notifications InAppNotification[]
+
+  // Связь с устройствами входа
+  loginDevices LoginDevice[]
 
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
@@ -254,7 +257,9 @@ model PushSubscription {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([userId])
+  // Один и тот же endpoint не должен дублироваться для пользователя
+  @@unique([userId, endpoint])
+  @@index([userId])
   @@map("push_subscriptions")
 }
 
@@ -275,4 +280,22 @@ model InAppNotification {
   readAt      DateTime?
 
   @@map("in_app_notifications")
+}
+
+// Устройства, с которых выполнялся вход
+model LoginDevice {
+  id        String   @id @default(cuid())
+  userId    Int
+  deviceId  String   // наш идентификатор устройства (cookie / localStorage)
+  userAgent String
+  ip        String?
+  city      String?
+  createdAt DateTime @default(now())
+  lastSeen  DateTime @default(now())
+
+  user      Seller   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@map("login_devices")
 }
