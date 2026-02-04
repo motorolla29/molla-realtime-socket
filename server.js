@@ -110,6 +110,29 @@ const httpServer = createServer((req, res) => {
               res.writeHead(500, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Internal server error' }));
             });
+        } else if (event === 'user-notification') {
+          // Handle user notification event
+          const { userId, notification } = data;
+
+          if (!userId || !notification) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({ error: 'Missing userId or notification' })
+            );
+            return;
+          }
+
+          try {
+            // Send notification to user's personal room
+            io.to(`user:${userId}`).emit('notification-created', notification);
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+          } catch (error) {
+            console.error('Error sending notification:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Failed to send notification' }));
+          }
         } else {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Unsupported event' }));
@@ -243,7 +266,7 @@ io.on('connection', async (socket) => {
   // Send snapshot of relevant online users to THIS client only
   const relevantUsers = await getRelevantUsers(userId);
   const onlineRelevantUsers = relevantUsers.filter((userId) =>
-    onlineUsers.has(userId),
+    onlineUsers.has(userId)
   );
 
   socket.emit('presence_snapshot', {
@@ -354,7 +377,51 @@ io.on('connection', async (socket) => {
         chatId,
         unreadCount,
       });
-    },
+
+      // Send push notification to recipient
+      try {
+        const recipient = await prisma.seller.findUnique({
+          where: { id: recipientId },
+          select: { name: true },
+        });
+
+        if (recipient) {
+          // Отправляем push-уведомление через HTTP запрос к Next.js API
+          const pushPayload = {
+            userId: recipientId,
+            title: 'Новое сообщение',
+            body: `${recipient.name}: ${content.substring(0, 50)}${
+              content.length > 50 ? '...' : ''
+            }`,
+            data: {
+              chatId: chatId,
+              messageId: message.id,
+              type: 'message',
+            },
+          };
+
+          // Отправляем запрос на Next.js API для отправки push
+          fetch(
+            `${
+              process.env.CORS_ORIGIN || 'http://localhost:3000'
+            }/api/push/send`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                // В продакшене нужно передавать токен аутентификации
+                // 'Authorization': `Bearer ${process.env.INTERNAL_API_TOKEN}`
+              },
+              body: JSON.stringify(pushPayload),
+            }
+          ).catch((error) => {
+            console.error('Failed to send push notification:', error);
+          });
+        }
+      } catch (error) {
+        console.error('Error preparing push notification:', error);
+      }
+    }
   );
 
   socket.on('disconnect', async () => {
