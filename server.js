@@ -327,6 +327,97 @@ io.on('connection', async (socket) => {
           tempId,
           message: persistedMessage,
         });
+
+        // Для уже сохранённых сообщений (например, только фото) тоже
+        // обновляем счётчик непрочитанных и отправляем push
+        const recipientId =
+          chat.buyerId === userId ? chat.sellerId : chat.buyerId;
+
+        try {
+          const unreadCount = await prisma.message.count({
+            where: {
+              chatId: chatId,
+              senderId: { not: recipientId },
+              status: { not: 'read' },
+            },
+          });
+
+          io.to(`user:${recipientId}`).emit('unread_update', {
+            chatId,
+            unreadCount,
+          });
+
+          // Push-уведомление для сообщений без текста (например, только фото)
+          const recipient = await prisma.seller.findUnique({
+            where: { id: recipientId },
+            select: { name: true },
+          });
+
+          if (recipient) {
+            const hasImageAttachment =
+              persistedMessage.type === 'image' ||
+              persistedMessage.messageType === 'image' ||
+              (Array.isArray(persistedMessage.attachments) &&
+                persistedMessage.attachments.length > 0);
+
+            let senderName =
+              persistedMessage.senderName ||
+              persistedMessage.sender?.name ||
+              'Пользователь';
+
+            // Обрезаем слишком длинные имена в пуше
+            if (senderName.length > 25) {
+              senderName = `${senderName.substring(0, 25)}…`;
+            }
+
+            // Если только фото (без текста) — "Имя: 📎 Фото"
+            const hasText =
+              typeof persistedMessage.content === 'string' &&
+              persistedMessage.content.trim().length > 0;
+
+            const body =
+              hasImageAttachment && !hasText
+                ? `${senderName}: 📎 Фото`
+                : `${senderName}: ${(persistedMessage.content || '').substring(
+                    0,
+                    50
+                  )}${
+                    (persistedMessage.content || '').length > 50 ? '...' : ''
+                  }`;
+
+            const pushPayload = {
+              userId: recipientId,
+              title: 'Новое сообщение',
+              body,
+              data: {
+                chatId: chatId,
+                messageId: persistedMessage.id,
+                type: 'message',
+              },
+            };
+
+            fetch(
+              `${
+                process.env.CORS_ORIGIN || 'http://localhost:3000'
+              }/api/push/send`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(pushPayload),
+              }
+            ).catch((error) => {
+              console.error('Failed to send push notification:', error);
+            });
+          }
+        } catch (error) {
+          console.error(
+            'Error updating unread count or sending push for persisted message:',
+            error
+          );
+        }
+
         return;
       }
 
@@ -380,44 +471,44 @@ io.on('connection', async (socket) => {
 
       // Send push notification to recipient
       try {
-        const recipient = await prisma.seller.findUnique({
-          where: { id: recipientId },
+        // Всегда показываем имя отправителя, а не получателя
+        const sender = await prisma.seller.findUnique({
+          where: { id: userId },
           select: { name: true },
         });
 
-        if (recipient) {
-          // Отправляем push-уведомление через HTTP запрос к Next.js API
-          const pushPayload = {
-            userId: recipientId,
-            title: 'Новое сообщение',
-            body: `${recipient.name}: ${content.substring(0, 50)}${
-              content.length > 50 ? '...' : ''
-            }`,
-            data: {
-              chatId: chatId,
-              messageId: message.id,
-              type: 'message',
-            },
-          };
-
-          // Отправляем запрос на Next.js API для отправки push
-          fetch(
-            `${
-              process.env.CORS_ORIGIN || 'http://localhost:3000'
-            }/api/push/send`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                // В продакшене нужно передавать токен аутентификации
-                // 'Authorization': `Bearer ${process.env.INTERNAL_API_TOKEN}`
-              },
-              body: JSON.stringify(pushPayload),
-            }
-          ).catch((error) => {
-            console.error('Failed to send push notification:', error);
-          });
+        let senderName = sender?.name || 'Пользователь';
+        // Обрезаем слишком длинные имена в пуше
+        if (senderName.length > 25) {
+          senderName = `${senderName.substring(0, 25)}…`;
         }
+
+        // Отправляем push-уведомление через HTTP запрос к Next.js API
+        const pushPayload = {
+          userId: recipientId,
+          title: 'Новое сообщение',
+          body: `${senderName}: ${content.substring(0, 50)}${
+            content.length > 50 ? '...' : ''
+          }`,
+          data: {
+            chatId: chatId,
+            messageId: message.id,
+            type: 'message',
+          },
+        };
+
+        fetch(
+          `${process.env.CORS_ORIGIN || 'http://localhost:3000'}/api/push/send`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(pushPayload),
+          }
+        ).catch((error) => {
+          console.error('Failed to send push notification:', error);
+        });
       } catch (error) {
         console.error('Error preparing push notification:', error);
       }
