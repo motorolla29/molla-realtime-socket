@@ -117,7 +117,7 @@ const httpServer = createServer((req, res) => {
           if (!userId || !notification) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(
-              JSON.stringify({ error: 'Missing userId or notification' })
+              JSON.stringify({ error: 'Missing userId or notification' }),
             );
             return;
           }
@@ -266,7 +266,7 @@ io.on('connection', async (socket) => {
   // Send snapshot of relevant online users to THIS client only
   const relevantUsers = await getRelevantUsers(userId);
   const onlineRelevantUsers = relevantUsers.filter((userId) =>
-    onlineUsers.has(userId)
+    onlineUsers.has(userId),
   );
 
   socket.emit('presence_snapshot', {
@@ -380,14 +380,14 @@ io.on('connection', async (socket) => {
                 ? `${senderName}: 📎 Фото`
                 : `${senderName}: ${(persistedMessage.content || '').substring(
                     0,
-                    50
+                    50,
                   )}${
                     (persistedMessage.content || '').length > 50 ? '...' : ''
                   }`;
 
             const pushPayload = {
               userId: recipientId,
-              title: 'Новое сообщение',
+              title: '💬 Новое сообщение',
               body,
               data: {
                 chatId: chatId,
@@ -406,7 +406,7 @@ io.on('connection', async (socket) => {
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(pushPayload),
-              }
+              },
             ).catch((error) => {
               console.error('Failed to send push notification:', error);
             });
@@ -414,7 +414,7 @@ io.on('connection', async (socket) => {
         } catch (error) {
           console.error(
             'Error updating unread count or sending push for persisted message:',
-            error
+            error,
           );
         }
 
@@ -505,14 +505,14 @@ io.on('connection', async (socket) => {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify(pushPayload),
-          }
+          },
         ).catch((error) => {
           console.error('Failed to send push notification:', error);
         });
       } catch (error) {
         console.error('Error preparing push notification:', error);
       }
-    }
+    },
   );
 
   socket.on('disconnect', async () => {
