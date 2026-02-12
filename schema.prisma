@@ -56,6 +56,12 @@ model Seller {
   // Связь с устройствами входа
   loginDevices LoginDevice[]
 
+  // Связь с отзывами (отзывы, оставленные пользователем)
+  userReviews Review[] @relation("UserReviews")
+
+  // Связь с отзывами (отзывы, полученные продавцом)
+  sellerReviews Review[] @relation("SellerReviews")
+
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
@@ -96,6 +102,9 @@ model Ad {
 
   // Связь с чатами
   chats         Chat[]
+
+  // Связь с отзывами
+  reviews       Review[]
 
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -240,7 +249,14 @@ enum NotificationType {
   login_new_device // Вход с нового устройства
   profile_update   // Изменение профиля
   ad_status_change // Статус объявления
+  review_created   // Новый отзыв о пользователе
   system           // Системные уведомления
+}
+
+// Роль, в которой пользователь получает отзыв
+enum ReviewTargetRole {
+  seller // отзыв о продавце
+  buyer  // отзыв о покупателе
 }
 
 // Модель push-подписок пользователей
@@ -298,4 +314,28 @@ model LoginDevice {
   @@unique([userId, deviceId])
   @@index([userId])
   @@map("login_devices")
+}
+
+// Модель отзывов
+model Review {
+  id        String   @id @default(cuid())
+  userId    Int      // ID пользователя, оставившего отзыв
+  sellerId  Int      // ID пользователя, которому оставлен отзыв (как продавцу или покупателю)
+  adId      String   // ID объявления
+  rating    Int      // Рейтинг от 1 до 5
+  content   String   // Текст отзыва
+  photos    String[] // URL фотографий отзыва
+  purchased Boolean  @default(false) // Был ли товар куплен
+  targetRole ReviewTargetRole @default(seller) // Кому адресован отзыв: продавцу или покупателю
+
+  // Связи
+  user      Seller   @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
+  seller    Seller   @relation("SellerReviews", fields: [sellerId], references: [id], onDelete: Cascade)
+  ad        Ad       @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, adId]) // Один пользователь — один отзыв на объявление
+  @@map("reviews")
 }
