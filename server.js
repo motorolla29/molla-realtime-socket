@@ -486,7 +486,7 @@ io.on('connection', async (socket) => {
         // Отправляем push-уведомление через HTTP запрос к Next.js API
         const pushPayload = {
           userId: recipientId,
-          title: 'Новое сообщение',
+          title: '💬 Новое сообщение',
           body: `${senderName}: ${content.substring(0, 50)}${
             content.length > 50 ? '...' : ''
           }`,
