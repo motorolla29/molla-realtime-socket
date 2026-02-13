@@ -328,6 +328,11 @@ model Review {
   purchased Boolean  @default(false) // Был ли товар куплен
   targetRole ReviewTargetRole @default(seller) // Кому адресован отзыв: продавцу или покупателю
 
+  // Ответ на отзыв от пользователя, которому этот отзыв адресован
+  replyContent   String?    // Текст ответа на отзыв
+  replyCreatedAt DateTime?  // Дата и время ответа на отзыв
+  replyPhotos    String[]   @default([]) // До 3 фотографий в ответе
+
   // Связи
   user      Seller   @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
   seller    Seller   @relation("SellerReviews", fields: [sellerId], references: [id], onDelete: Cascade)
