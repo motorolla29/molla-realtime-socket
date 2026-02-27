@@ -62,6 +62,13 @@ model Seller {
   // Связь с отзывами (отзывы, полученные продавцом)
   sellerReviews Review[] @relation("SellerReviews")
 
+  // Блокировки пользователей
+  blockedUsers UserBlock[] @relation("Blocker")
+  blockedBy    UserBlock[] @relation("Blocked")
+
+  // Скрытые чаты
+  hiddenChats ChatHidden[]
+
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
@@ -178,6 +185,9 @@ model Chat {
 
   // Сообщения в чате
   messages    Message[]
+
+  // Скрытия чатов пользователями
+  hiddenBy    ChatHidden[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -343,4 +353,32 @@ model Review {
 
   @@unique([userId, adId]) // Один пользователь — один отзыв на объявление
   @@map("reviews")
+}
+
+// Модель скрытия чата конкретным пользователем
+model ChatHidden {
+  id        Int      @id @default(autoincrement())
+  chatId    String
+  userId    Int
+  deletedAt DateTime @default(now())
+
+  chat Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user Seller @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@map("chat_hidden")
+}
+
+// Модель блокировок пользователей
+model UserBlock {
+  id        Int      @id @default(autoincrement())
+  blockerId Int
+  blockedId Int
+  createdAt DateTime @default(now())
+
+  blocker Seller @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked Seller @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@map("user_blocks")
 }

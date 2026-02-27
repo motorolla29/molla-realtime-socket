@@ -234,6 +234,28 @@ async function getRelevantUsers(userId) {
   }
 }
 
+async function isBlockedBetweenUsers(userIdA, userIdB) {
+  if (!userIdA || !userIdB) return null;
+  try {
+    const block = await prisma.userBlock.findFirst({
+      where: {
+        OR: [
+          { blockerId: userIdA, blockedId: userIdB },
+          { blockerId: userIdB, blockedId: userIdA },
+        ],
+      },
+      select: {
+        blockerId: true,
+        blockedId: true,
+      },
+    });
+    return block;
+  } catch (error) {
+    console.error('Error checking user block state:', error);
+    return null;
+  }
+}
+
 io.on('connection', async (socket) => {
   const token = parseTokenFromHandshake(socket.handshake);
   const payload = verifyAuth(token);
@@ -289,8 +311,18 @@ io.on('connection', async (socket) => {
     socket.leave(`chat:${chatId}`);
   });
 
-  socket.on('typing', ({ chatId }) => {
+  socket.on('typing', async ({ chatId }) => {
     if (!chatId) return;
+    const chat = await ensureChatAccess(chatId, userId);
+    if (!chat) return;
+
+    const otherUserId = chat.buyerId === userId ? chat.sellerId : chat.buyerId;
+    const block = await isBlockedBetweenUsers(userId, otherUserId);
+    if (block) {
+      // Между пользователями есть блокировка – не рассылаем typing
+      return;
+    }
+
     socket.to(`chat:${chatId}`).emit('typing', {
       chatId,
       fromUserId: userId,
@@ -298,8 +330,18 @@ io.on('connection', async (socket) => {
     });
   });
 
-  socket.on('stop_typing', ({ chatId }) => {
+  socket.on('stop_typing', async ({ chatId }) => {
     if (!chatId) return;
+    const chat = await ensureChatAccess(chatId, userId);
+    if (!chat) return;
+
+    const otherUserId = chat.buyerId === userId ? chat.sellerId : chat.buyerId;
+    const block = await isBlockedBetweenUsers(userId, otherUserId);
+    if (block) {
+      // Между пользователями есть блокировка – не рассылаем stop_typing
+      return;
+    }
+
     socket.to(`chat:${chatId}`).emit('stop_typing', {
       chatId,
       fromUserId: userId,
@@ -317,6 +359,26 @@ io.on('connection', async (socket) => {
         return;
       }
 
+      const recipientId =
+        chat.buyerId === userId ? chat.sellerId : chat.buyerId;
+
+      // Блокировки: если кто-то заблокировал собеседника, не рассылаем сообщения и не шлем пуши
+      const block = await isBlockedBetweenUsers(userId, recipientId);
+      if (block) {
+        const isBlockedByMe = block.blockerId === userId;
+        const errorMessage = isBlockedByMe
+          ? 'Вы заблокировали этого пользователя и не можете отправлять ему сообщения.'
+          : 'Вы не можете отправить сообщение, так как пользователь заблокировал вас.';
+
+        socket.emit('message_error', {
+          chatId,
+          tempId,
+          reason: 'blocked',
+          message: errorMessage,
+        });
+        return;
+      }
+
       // If message already persisted (e.g., with attachments via REST)
       if (persistedMessage) {
         io.to(`chat:${chatId}`).emit('new_message', {
@@ -330,9 +392,6 @@ io.on('connection', async (socket) => {
 
         // Для уже сохранённых сообщений (например, только фото) тоже
         // обновляем счётчик непрочитанных и отправляем push
-        const recipientId =
-          chat.buyerId === userId ? chat.sellerId : chat.buyerId;
-
         try {
           const unreadCount = await prisma.message.count({
             where: {
@@ -454,8 +513,6 @@ io.on('connection', async (socket) => {
       });
 
       // Notify the recipient about unread message update
-      const recipientId =
-        chat.buyerId === userId ? chat.sellerId : chat.buyerId;
       const unreadCount = await prisma.message.count({
         where: {
           chatId: chatId,
