@@ -175,13 +175,13 @@ model UserView {
 model Chat {
   id          String   @id @default(cuid())
   adId        String?
-  buyerId     Int      // ID покупателя
-  sellerId    Int      // ID продавца
+  buyerId     Int?     // ID покупателя (может быть null, если пользователь удалён)
+  sellerId    Int?     // ID продавца (может быть null, если пользователь удалён)
 
   // Связи
   ad          Ad?      @relation(fields: [adId], references: [id], onDelete: SetNull)
-  buyer       Seller   @relation("BuyerChats", fields: [buyerId], references: [id], onDelete: Cascade)
-  seller      Seller   @relation("SellerChats", fields: [sellerId], references: [id], onDelete: Cascade)
+  buyer       Seller?  @relation("BuyerChats", fields: [buyerId], references: [id], onDelete: SetNull)
+  seller      Seller?  @relation("SellerChats", fields: [sellerId], references: [id], onDelete: SetNull)
 
   // Сообщения в чате
   messages    Message[]
@@ -201,14 +201,14 @@ model Chat {
 model Message {
   id          String   @id @default(cuid())
   chatId      String
-  senderId    Int      // ID отправителя
+  senderId    Int?     // ID отправителя (может быть null, если пользователь удалён)
   content     String?  // Текст сообщения (может быть null для сообщений только с файлами)
   messageType MessageType @default(text) // Тип сообщения
   status      MessageStatus @default(sent) // Статус сообщения
 
   // Связи
   chat        Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  sender      Seller   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  sender      Seller?  @relation(fields: [senderId], references: [id], onDelete: SetNull)
 
   // Вложения
   attachments MessageAttachment[]
