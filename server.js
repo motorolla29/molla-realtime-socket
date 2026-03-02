@@ -506,11 +506,13 @@ io.on('connection', async (socket) => {
       io.to(`chat:${chatId}`).emit('new_message', { ...payload, tempId });
       socket.emit('message_saved', { tempId, message: payload });
 
-      // Update message status to delivered in database
-      await prisma.message.update({
-        where: { id: message.id },
-        data: { status: 'delivered' },
-      });
+      // NOTE: статус сразу сохраняем как 'delivered' при создании сообщения,
+      // поэтому дополнительный update больше не нужен. Оставляем закомментированным
+      // на случай, если логика статусов изменится в будущем.
+      // await prisma.message.update({
+      //   where: { id: message.id },
+      //   data: { status: 'delivered' },
+      // });
 
       // Notify the recipient about unread message update
       const unreadCount = await prisma.message.count({
