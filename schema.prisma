@@ -382,3 +382,13 @@ model UserBlock {
   @@unique([blockerId, blockedId])
   @@map("user_blocks")
 }
+
+// Статистика поисковых запросов
+model SearchStat {
+  id              Int      @id @default(autoincrement())
+  text            String   @unique
+  count           Int      @default(0)
+  lastSearchedAt  DateTime @default(now())
+
+  @@map("search_stats")
+}
