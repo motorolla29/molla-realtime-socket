@@ -1,2 +1,2 @@
-[run]
-command = "npm start"
+entrypoint = "server.js"
+run = "node server.js"
