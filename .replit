@@ -1,5 +1,2 @@
 [run]
 command = "npm start"
-
-[env]
-PORT = "8080"
