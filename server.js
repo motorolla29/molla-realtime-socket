@@ -144,15 +144,6 @@ const httpServer = createServer((req, res) => {
           }
 
           try {
-            // Check if sender is online - if so, skip this event (they already sent via socket)
-            const senderId = persistedMessage.senderId;
-            if (onlineUsers.has(senderId)) {
-              // Sender is online, they already sent via socket - don't duplicate
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ success: true, skipped: true }));
-              return;
-            }
-
             // Send new_message event to chat room
             io.to(`chat:${chatId}`).emit('new_message', persistedMessage);
 
