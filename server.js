@@ -41,7 +41,7 @@ const httpServer = createServer((req, res) => {
       body += chunk.toString();
     });
 
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const { event, data } = JSON.parse(body);
 
@@ -132,6 +132,58 @@ const httpServer = createServer((req, res) => {
             console.error('Error sending notification:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Failed to send notification' }));
+          }
+        } else if (event === 'send_message') {
+          // Handle send_message event (for messages sent via REST API when sender was offline)
+          const { chatId, persistedMessage } = data;
+
+          if (!chatId || !persistedMessage) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Missing chatId or persistedMessage' }));
+            return;
+          }
+
+          try {
+            // Check if sender is online - if so, skip this event (they already sent via socket)
+            const senderId = persistedMessage.senderId;
+            if (onlineUsers.has(senderId)) {
+              // Sender is online, they already sent via socket - don't duplicate
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, skipped: true }));
+              return;
+            }
+
+            // Send new_message event to chat room
+            io.to(`chat:${chatId}`).emit('new_message', persistedMessage);
+
+            // Update unread count for recipient
+            const chat = await prisma.chat.findUnique({
+              where: { id: chatId },
+              select: { buyerId: true, sellerId: true },
+            });
+
+            if (chat) {
+              const actualRecipientId = chat.buyerId === persistedMessage.senderId ? chat.sellerId : chat.buyerId;
+              const unreadCount = await prisma.message.count({
+                where: {
+                  chatId: chatId,
+                  senderId: { not: actualRecipientId },
+                  status: { not: 'read' },
+                },
+              });
+
+              io.to(`user:${actualRecipientId}`).emit('unread_update', {
+                chatId,
+                unreadCount,
+              });
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+          } catch (error) {
+            console.error('Error in send_message:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Internal server error' }));
           }
         } else {
           res.writeHead(400, { 'Content-Type': 'application/json' });
