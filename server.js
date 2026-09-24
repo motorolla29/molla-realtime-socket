@@ -157,7 +157,7 @@ const io = new Server(httpServer, {
   transports: ['websocket'],
 });
 
-// userId -> { sockets: Set<socketId>, lastSeenAt?: Date }
+// userId -> { sockets: Set<socketId>, lastSeenAt?: Date, activeChats: Set<chatId> }
 const onlineUsers = new Map();
 
 function parseTokenFromHandshake(handshake) {
@@ -272,9 +272,15 @@ io.on('connection', async (socket) => {
   const state = onlineUsers.get(userId) || {
     sockets: new Set(),
     lastSeenAt: null,
+    activeChats: new Set(),
   };
   state.sockets.add(socket.id);
   onlineUsers.set(userId, state);
+
+  // Rejoin to all active chats after reconnection
+  state.activeChats.forEach((chatId) => {
+    socket.join(`chat:${chatId}`);
+  });
 
   // Join personal room for presence fan-out
   socket.join(`user:${userId}`);
@@ -303,12 +309,25 @@ io.on('connection', async (socket) => {
       return;
     }
     socket.join(`chat:${chatId}`);
+    
+    // Track active chat for reconnection
+    const state = onlineUsers.get(userId);
+    if (state) {
+      state.activeChats.add(chatId);
+    }
+    
     socket.emit('chat_joined', { chatId });
   });
 
   socket.on('leave_chat', ({ chatId }) => {
     if (!chatId) return;
     socket.leave(`chat:${chatId}`);
+    
+    // Remove from active chats
+    const state = onlineUsers.get(userId);
+    if (state) {
+      state.activeChats.delete(chatId);
+    }
   });
 
   socket.on('typing', async ({ chatId }) => {
@@ -580,6 +599,8 @@ io.on('connection', async (socket) => {
     state.sockets.delete(socket.id);
     if (state.sockets.size === 0) {
       const lastSeenAt = new Date();
+      // Clear active chats when user goes fully offline
+      state.activeChats.clear();
       onlineUsers.delete(userId);
       try {
         await prisma.seller.update({
