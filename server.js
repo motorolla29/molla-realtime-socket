@@ -209,7 +209,7 @@ const io = new Server(httpServer, {
   transports: ['websocket'],
 });
 
-// userId -> { sockets: Set<socketId>, lastSeenAt?: Date, activeChats: Set<chatId> }
+// userId -> { sockets: Set<socketId>, lastSeenAt?: Date, activeChats: Set<chatId>, cleanupTimer?: NodeJS.Timeout }
 const onlineUsers = new Map();
 
 function parseTokenFromHandshake(handshake) {
@@ -325,8 +325,16 @@ io.on('connection', async (socket) => {
     sockets: new Set(),
     lastSeenAt: null,
     activeChats: new Set(),
+    cleanupTimer: null,
   };
   state.sockets.add(socket.id);
+  
+  // Cancel cleanup timer if user reconnects
+  if (state.cleanupTimer) {
+    clearTimeout(state.cleanupTimer);
+    state.cleanupTimer = null;
+  }
+  
   onlineUsers.set(userId, state);
 
   // Rejoin to all active chats after reconnection
@@ -651,9 +659,20 @@ io.on('connection', async (socket) => {
     state.sockets.delete(socket.id);
     if (state.sockets.size === 0) {
       const lastSeenAt = new Date();
-      // Clear active chats when user goes fully offline
-      state.activeChats.clear();
-      onlineUsers.delete(userId);
+      state.lastSeenAt = lastSeenAt;
+      
+      // Schedule cleanup of activeChats after 1 hour
+      state.cleanupTimer = setTimeout(() => {
+        const currentState = onlineUsers.get(userId);
+        if (currentState && currentState.sockets.size === 0) {
+          // User still offline after 1 hour - clear active chats
+          currentState.activeChats.clear();
+          onlineUsers.delete(userId);
+        }
+      }, 60 * 60 * 1000); // 1 hour
+      
+      onlineUsers.set(userId, state);
+      
       try {
         await prisma.seller.update({
           where: { id: userId },
